@@ -1,12 +1,14 @@
-// Load required packages
 var mongoose = require('mongoose');
 
-// Define our beer schema
-var ClientSchema   = new mongoose.Schema({
+var ClientSchema = new mongoose.Schema({
 	name: String,
 	nif: Number,
+	phone: Number,
+	email: String,
+	facebook: String,
+	address: String,
+	birthday: Date,
 	userId: String
-});
+},{ timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
-// Export the Mongoose model
 module.exports = mongoose.model('Client', ClientSchema);
