@@ -10,13 +10,32 @@ var authController = require('./controllers/auth');
 var clientsController = require('./controllers/client');
 var sTypesController = require('./controllers/service-type');
 
-var options = {server:{auto_reconnect:false,socketOption:{keepAlive:true}}};
+var options = {server:{auto_reconnect:true,socketOption:{keepAlive:true}}};
+var opts = {
+	replset: {
+		strategy: 'ping',
+		rs_name: 'somerepsetname',
+		readSecondary: true,
+		socketOptions : {
+			keepAlive : 1
+		}
+	},
+	server : {
+		readPreference : 'secondary',
+		auto_reconnect: true,
+		socketOptions : {
+			keepAlive : 1
+		}
+	},
+	db: { readPreference: 'secondary' }
+};
 var mongodbUri = process.env.MONGODBURL;
 var conn = mongoose.connection;
 conn.on('disconnected', function() {
 	console.log('Connection to MongoDB is down');
 	setTimeout(function() {
-		mongoose.connect(mongodbUri, options);
+		console.log("will connect again...hopefully");
+		mongoose.connect(mongodbUri, opts);
 	},2000)
 });
 
@@ -27,7 +46,7 @@ conn.on('error', function(err) {
 
 exports.dbConn = conn;
 
-mongoose.connect(mongodbUri, options);
+mongoose.connect(mongodbUri, opts);
 
 // Create restify server
 var server = restify.createServer();
@@ -38,7 +57,7 @@ server.use(restify.authorizationParser());
 server.use(restify.CORS({
 	origins: [process.env.GOOGLE_APP_URL_CALLBACK],
 	methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'PATCH', 'DELETE'],
-	headers: ['X-Requested-With', 'content-type', 'Authorization'],
+	headers: ['X-Requested-With', 'content-type', 'Authorization', 'Retry-After', "retry"],
 	credentials: true
 }));
 
@@ -56,6 +75,13 @@ server.opts(/.*/, function (req,res,next) {
 // ROUTES
 server.get('/error-handling', function(req, res){
 	res.json(401, {error: "No authorization header found"})
+});
+
+server.get('/retry-handling', function(req, res) {
+	console.log("retry sent");
+	res.setHeader("Retry-After", 5000);
+
+	res.json(503, {error: "No authorization header found"})
 });
 
 

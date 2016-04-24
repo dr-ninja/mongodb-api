@@ -61,7 +61,14 @@ exports.isAuthenticated = function (req, res, next) {
 	// Check if request has an authorization header
 	if(req.authorization && req.authorization.scheme == 'Bearer' && req.authorization.credentials) {
 
-		console.log("00000", server.dbConn.readyState);
+		/*console.log("00000", server.dbConn.readyState);
+		server.dbConn.close();
+
+		res.setHeader("Retry-After", 5000);
+		res.redirect(200, '/retry-handling');*/
+
+
+
 		// Get user from db
 		guserController.getGuser(req.authorization.credentials, function(err, guser) {
 			// User found
@@ -95,7 +102,7 @@ exports.isAuthenticated = function (req, res, next) {
 				 message: 'server ds041693-a.mlab.com:41693 sockets closed' }
 				 */
 				console.log(server.dbConn.readyState); // = 1 ERROR IN MONGOOSE
-				res.redirect(401, '/error-handling', next);
+				res.redirect(503, '/retry-handling', next);
 			}
 		});
 	} else {
