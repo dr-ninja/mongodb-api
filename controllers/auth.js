@@ -1,68 +1,107 @@
-// Load required packages
-var passport = require('passport');
-var BasicStrategy = require('passport-http').BasicStrategy;
-var BearerStrategy = require('passport-http-bearer').Strategy;
-var User = require('../models/user');
-var Partner = require('../models/partner');
-var Token = require('../models/token');
+var google = require('googleapis');
+var plus = google.plus('v1');
+var googleAuth = require('google-auth-library');
+var guserController = require('./guser');
+var server = require('../server');
 
-passport.use(new BasicStrategy(
-	function(username, password, callback) {
-		User.findOne({ username: username }, function (err, user) {
-			if (err) { return callback(err); }
+var auth = new googleAuth();
+var oauth2Client = new auth.OAuth2(
+	process.env.GOOGLE_APP_ID, process.env.GOOGLE_APP_SECRET, process.env.GOOGLE_APP_URL_CALLBACK);
 
-			// No user found with that username
-			if (!user) { return callback(null, false); }
 
-			// Make sure the password is correct
-			user.verifyPassword(password, function(err, isMatch) {
-				if (err) { return callback(err); }
+exports.oauth2Client = oauth2Client;
 
-				// Password did not match
-				if (!isMatch) { return callback(null, false); }
+exports.signIn = function (req, res, next) {
 
-				// Success
-				return callback(null, user);
-			});
+	oauth2Client.getToken(req.body.code, function(err, token) {
+		if (err) {
+			console.log('Error while trying to retrieve access token', err);
+			return;
+		}
+		oauth2Client.credentials = token;
+
+		plus.people.get({ userId: 'me', auth: oauth2Client }, function(err, guser) {
+			if (guser) {
+				guserController.getGuserById(guser.id, function(err, dbUser) {
+					if(dbUser) {
+						var credentials = dbUser.credentials;
+						credentials.access_token = token.access_token;
+						credentials.expiry_date = token.expiry_date;
+						credentials.id_token = token.id_token;
+
+						guserController.updateGuserToken(dbUser, credentials, function (err) {
+							if(!err) {
+								oauth2Client.credentials = {};
+								req._credentials = credentials;
+								return next();
+							} else {
+								res.redirect(401, '/error-handling', next);
+							}
+						});
+					} else {
+						guserController.postGuser(req, res, guser, token, function(err, user) {
+							if(!err && user) {
+								oauth2Client.credentials = {};
+								req._credentials = user.credentials;
+								return next();
+							} else {
+								res.redirect(401, '/error-handling', next);
+							}
+						});
+					}
+				});
+			} else {
+				res.redirect(401, '/error-handling', next);
+			}
 		});
-	}
-));
+	});
+};
 
-passport.use('partner-basic', new BasicStrategy(
-	function(username, password, callback) {
-		Partner.findOne({ id: username }, function (err, partner) {
-			if (err) { return callback(err); }
+exports.isAuthenticated = function (req, res, next) {
+	// Check if request has an authorization header
+	if(req.authorization && req.authorization.scheme == 'Bearer' && req.authorization.credentials) {
 
-			// No partner found with that id or bad password
-			if (!partner || partner.secret !== password) { return callback(null, false); }
+		console.log("00000", server.dbConn.readyState);
+		// Get user from db
+		guserController.getGuser(req.authorization.credentials, function(err, guser) {
+			// User found
+			if(guser) {
+				// Refresh access_token
+				oauth2Client.credentials = guser.credentials;
 
-			// Success
-			return callback(null, partner);
+				oauth2Client.getRequestMetadata("", function(err) {
+					// access_token is now refreshed and credentials stored in oauth2Client
+					if(!err) {
+						guserController.updateGuserToken(guser, oauth2Client.credentials, function (err) {
+
+							req.user = (!err) ? guser : {};
+							res.setHeader("Authorization", guserController.getAuthorizationHeader(oauth2Client.credentials));
+							oauth2Client.credentials = {};
+							return next();
+						});
+					} else {
+						console.log("11111", err);
+						console.log(server.dbConn.readyState);
+						res.redirect(401, '/error-handling', next);
+					}
+				});
+			} else {
+				console.log("22222", err);
+
+				// TODO: reconnect to db and call isAuthenticated again
+				/*
+				* [MongoError: server ds041693-a.mlab.com:41693 sockets closed]
+				 name: 'MongoError',
+				 message: 'server ds041693-a.mlab.com:41693 sockets closed' }
+				 */
+				console.log(server.dbConn.readyState); // = 1 ERROR IN MONGOOSE
+				res.redirect(401, '/error-handling', next);
+			}
 		});
+	} else {
+		console.log("33333");
+		console.log(server.dbConn.readyState);
+		// Request doesn't have an authorization header
+		res.redirect(401, '/error-handling', next);
 	}
-));
-
-passport.use(new BearerStrategy(
-	function(accessToken, callback) {
-		Token.findOne({value: accessToken }, function (err, token) {
-			if (err) { return callback(err); }
-
-			// No token found
-			if (!token) { return callback(null, false); }
-
-			User.findOne({ _id: token.userId }, function (err, user) {
-				if (err) { return callback(err); }
-
-				// No user found
-				if (!user) { return callback(null, false); }
-
-				// Simple example with no scope
-				callback(null, user, { scope: '*' });
-			});
-		});
-	}
-));
-
-exports.isAuthenticated = passport.authenticate(['basic', 'bearer'], { session : false });
-exports.isPartnerAuthenticated = passport.authenticate('partner-basic', { session : false });
-exports.isBearerAuthenticated = passport.authenticate('bearer', { session: false });
+};

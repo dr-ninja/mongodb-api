@@ -1,6 +1,7 @@
 var ServiceType = require('../models/service-type');
 
 exports.postServiceTypes = function(req, res) {
+
 	var serviceType = new ServiceType();
 
 	serviceType._user = req.user._id;
