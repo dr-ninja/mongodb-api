@@ -3,6 +3,7 @@ var plus = google.plus('v1');
 var googleAuth = require('google-auth-library');
 var guserController = require('./guser');
 var server = require('../server');
+var errors = require('restify-errors');
 
 var auth = new googleAuth();
 var oauth2Client = new auth.OAuth2(
@@ -66,7 +67,7 @@ exports.isAuthenticated = function (req, res, next) {
 
 		res.setHeader("Retry-After", 5000);
 		res.redirect(200, '/retry-handling');*/
-
+		//return next(new errors.ServiceUnavailableError());
 
 
 		// Get user from db
@@ -102,7 +103,9 @@ exports.isAuthenticated = function (req, res, next) {
 				 message: 'server ds041693-a.mlab.com:41693 sockets closed' }
 				 */
 				console.log(server.dbConn.readyState); // = 1 ERROR IN MONGOOSE
-				res.redirect(503, '/retry-handling', next);
+				server.dbConn.disconnect();
+				return next(new errors.ServiceUnavailableError());
+
 			}
 		});
 	} else {
